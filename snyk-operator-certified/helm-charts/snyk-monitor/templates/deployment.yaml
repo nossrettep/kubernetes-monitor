@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "snyk-monitor.name" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "snyk-monitor.name" . }}
+    helm.sh/chart: {{ include "snyk-monitor.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "snyk-monitor.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "snyk-monitor.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ include "snyk-monitor.name" . }}
+      restartPolicy: Always
+      initContainers:
+        - name: volume-permissions
+          image: "{{ .Values.initContainerImage.repository }}:{{ .Values.initContainerImage.tag }}"
+          command : ['sh', '-c', 'chmod -R g+rwX /var/tmp || true']
+          volumeMounts:
+            - name: temporary-storage
+              mountPath: "/var/tmp"
+          securityContext:
+            privileged: false
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      containers:
+        - name: {{ include "snyk-monitor.name" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - name: docker-config
+            readOnly: true
+            mountPath: "/srv/app/.docker"
+          - name: temporary-storage
+            mountPath: "/var/tmp"
+          - name: ssl-certs
+            mountPath: "/srv/app/certs"
+          - name: registries-conf
+            mountPath: "/srv/app/.config/containers"
+          env:
+          - name: SNYK_INTEGRATION_ID
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.monitorSecrets }}
+                key: integrationId
+          - name: SNYK_NAMESPACE
+            value: {{ include "snyk-monitor.scope" . }}
+          - name: SNYK_INTEGRATION_API
+            value: {{ .Values.integrationApi }}
+          - name: SNYK_CLUSTER_NAME
+            value: {{ .Values.clusterName }}
+          - name: SNYK_MONITOR_VERSION
+            value: {{ .Values.image.tag }}
+          - name: HOME
+            value: /srv/app
+          - name: HTTP_PROXY
+            value: {{ .Values.http_proxy }}
+          - name: HTTPS_PROXY
+            value: {{ .Values.https_proxy }}
+          - name: NO_PROXY
+            value: {{ .Values.no_proxy }}
+          - name: LOG_LEVEL
+            value: {{ .Values.log_level }}
+          resources:
+            requests:
+              cpu: {{ .Values.requests.cpu }}
+              memory: {{ .Values.requests.memory }}
+            limits:
+              cpu: {{ .Values.limits.cpu }}
+              memory: {{ .Values.limits.memory }}
+          securityContext:
+            privileged: false
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: docker-config
+          secret:
+            secretName: {{ .Values.monitorSecrets }}
+            items:
+              - key: dockercfg.json
+                path: config.json
+        - name: temporary-storage
+          {{- if .Values.pvc.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.pvc.name }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ .Values.temporaryStorageSize }}
+          {{- end }}
+        - name: ssl-certs
+          configMap:
+            name: {{ .Values.certsConfigMap }}
+            optional: true
+        - name: registries-conf
+          configMap:
+            name: {{ .Values.registriesConfConfigMap }}
+            optional: true
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
