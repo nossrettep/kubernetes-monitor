@@ -28,7 +28,7 @@
   "private": true,
   "dependencies": {
     "@kubernetes/client-node": "^0.12.2",
-    "@snyk/dep-graph": "^1.21.0",
+    "@snyk/dep-graph": "^1.22.0",
     "@types/async": "^3.2.3",
     "@types/child-process-promise": "^2.2.1",
     "@types/lru-cache": "^5.1.0",
